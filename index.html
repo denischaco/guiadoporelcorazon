@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GUIADOS POR LAS TRIPAS Y EL CORAZON</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tone.js for rhythmic background music -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        /* Estilos generales para la estética chamánica */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a1a1a; /* Fondo oscuro */
+            color: #d1b48b; /* Tono terroso/dorado */
+        }
+        #gameCanvas {
+            border: 4px solid #8b5e32; /* Borde de madera o tierra */
+            background-color: #0d0d0d;
+            box-shadow: 0 0 20px rgba(139, 94, 50, 0.5);
+            display: block;
+        }
+        .shamanic-title {
+            color: #f59e0b; /* Dorado brillante para el título */
+            text-shadow: 0 0 10px rgba(245, 158, 11, 0.5);
+        }
+        .timer-glow {
+             color: #ef4444;
+             text-shadow: 0 0 5px rgba(239, 68, 68, 0.7);
+        }
+    </style>
+</head>
+<body class="p-4 flex flex-col items-center justify-center min-h-screen">
+
+    <header class="text-center mb-6">
+        <h1 class="text-4xl font-bold shamanic-title mb-1">GUIADOS POR LAS TRIPAS Y EL CORAZON</h1>
+        <p class="text-sm italic text-gray-400 mb-4">
+            Inspirado por el capítulo "<a href="https://www.escuelamonicarodriguez.net/podcasts/libres-para-crear/episodes/2149113866" target="_blank" class="hover:underline text-amber-500">Doble intuición creativa ¿qué es?</a>" de Monica Rodriguez.
+        </p>
+        <p class="text-xl font-semibold text-gray-200">
+            Objetivo: Sigue tu intuición (el corazón) hasta la Meta (★) antes de que la Realidad cambie.
+        </p>
+    </header>
+
+    <!-- Área de información y juego -->
+    <main class="w-full max-w-4xl flex flex-col items-center">
+        
+        <div class="flex justify-between w-full p-2 bg-gray-800 rounded-lg mb-4">
+            <div class="text-lg font-mono">
+                Tiempo de cambio: <span id="timer" class="timer-glow font-bold">00:30</span>
+            </div>
+            <div class="text-lg font-mono">
+                Movimientos: <span id="move-count" class="text-green-400 font-bold">0</span>
+            </div>
+            <!-- Botón MUTE -->
+            <button id="muteButton" class="px-3 py-1 bg-gray-600 text-white rounded-md hover:bg-gray-500 transition duration-300">
+                Silenciar
+            </button>
+        </div>
+
+        <canvas id="gameCanvas" width="800" height="600" class="rounded-xl"></canvas>
+
+        <div class="mt-4 text-center text-gray-400">
+            <p>Usa las teclas <span class="font-bold text-white">W, A, S, D</span> o las <span class="font-bold text-white">flechas</span> para moverte.</p>
+        </div>
+        
+    </main>
+
+    <!-- Modal para mensajes (Ganar, Perder, Cambio de Realidad) -->
+    <div id="messageModal" class="fixed inset-0 bg-black bg-opacity-75 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-gray-900 border-4 border-amber-600 rounded-lg p-8 text-center shadow-2xl">
+            <h2 id="modalTitle" class="text-3xl font-bold shamanic-title mb-4"></h2>
+            <p id="modalMessage" class="text-lg text-gray-300 mb-6"></p>
+            <button id="modalButton" class="px-6 py-2 bg-amber-600 text-gray-900 font-bold rounded-full hover:bg-amber-500 transition duration-300 shadow-md">
+                Comenzar Aventura
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Definiciones globales
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const timerDisplay = document.getElementById('timer');
+        const moveCountDisplay = document.getElementById('move-count');
+        const modal = document.getElementById('messageModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalMessage = document.getElementById('modalMessage');
+        const modalButton = document.getElementById('modalButton');
+        const muteButton = document.getElementById('muteButton'); 
+
+        // --- CONFIGURACIÓN DEL JUEGO ---
+        const CELL_SIZE = 40; // Tamaño de cada celda del laberinto en píxeles
+        const MAZE_W = 20;    // Ancho del laberinto en celdas
+        const MAZE_H = 15;    // Alto del laberinto en celdas
+        const REALITY_CHANGE_TIME = 30; // 30 segundos
+        const VISIBILITY_RADIUS = 5.5 * CELL_SIZE; // Radio visible alrededor del jugador
+
+        // Asegurar que el canvas tenga el tamaño correcto
+        canvas.width = MAZE_W * CELL_SIZE;
+        canvas.height = MAZE_H * CELL_SIZE;
+        
+        let maze = [];
+        let player = { x: 0, y: 0, targetX: 0, targetY: 0, speed: 0.15, isMoving: false, moveTimer: 0 };
+        let goal = { x: 0, y: 0 };
+        let gameState = 'IDLE'; // IDLE, PLAYING, WON, LOST
+        let timeRemaining = REALITY_CHANGE_TIME;
+        let changeInterval;
+        let moveCount = 0;
+
+        // --- LÓGICA DE AUDIO (Tone.js) ---
+        let loop;
+        let isAudioStarted = false;
+
+        function startRhythmicDrums() {
+            try {
+                // El usuario debe interactuar primero para que el audio funcione
+                if (isAudioStarted) return;
+                isAudioStarted = true;
+                
+                // Transporte y Tempo (BPM)
+                Tone.Transport.bpm.value = 80;
+
+                // Instrumentos simples para percusión
+                const kick = new Tone.MembraneSynth({
+                    envelope: {
+                        sustain: 0.01,
+                        decay: 0.4
+                    },
+                    octaves: 10,
+                }).toDestination();
+                
+                const tom = new Tone.MembraneSynth({
+                    pitchDecay: 0.05,
+                    octaves: 8,
+                    envelope: {
+                        attack: 0.001,
+                        decay: 0.2,
+                        sustain: 0.01,
+                        release: 0.1,
+                    },
+                }).toDestination();
+
+                // Loop rítmico (similar a un patrón tribal)
+                loop = new Tone.Loop(time => {
+                    // Pulso principal (Kick en el 1 y 3)
+                    kick.triggerAttackRelease("C1", "8n", time);
+                    
+                    // Ritmo de Tom/Percusión (off-beats)
+                    Tone.Draw.schedule(() => {
+                        tom.triggerAttackRelease("G3", "16n", time + Tone.Time("4n").toSeconds() * 0.5);
+                        tom.triggerAttackRelease("F3", "16n", time + Tone.Time("4n").toSeconds() * 1.5);
+                        tom.triggerAttackRelease("G3", "16n", time + Tone.Time("4n").toSeconds() * 2.5);
+                        tom.triggerAttackRelease("F3", "16n", time + Tone.Time("4n").toSeconds() * 3.5);
+                    }, time);
+
+                }, "1n").start(0); // Loop cada nota entera (1n)
+
+                Tone.Transport.start();
+            } catch(e) {
+                console.error("Error al iniciar el audio:", e);
+            }
+        }
+        
+        function toggleMute() {
+            try {
+                // Tone.Destination es el nodo de salida principal. Mutea toda la salida.
+                Tone.Destination.mute = !Tone.Destination.mute;
+                
+                // Actualizar el texto del botón
+                muteButton.textContent = Tone.Destination.mute ? 'Activar Sonido' : 'Silenciar';
+            } catch(e) {
+                console.error("Error al silenciar/activar el audio:", e);
+            }
+        }
+
+        // --- GENERADOR DE LABERINTOS (Algoritmo de Pruebas de Celdas) ---
+
+        // Celda: [Norte, Este, Sur, Oeste] (1=Muro, 0=Camino)
+        function createMaze() {
+            try {
+                maze = Array(MAZE_H).fill(0).map(() => 
+                    Array(MAZE_W).fill(0).map(() => [1, 1, 1, 1]) // Inicialmente, todas las celdas tienen 4 muros
+                );
+
+                const visited = Array(MAZE_H).fill(0).map(() => Array(MAZE_W).fill(false));
+                const stack = [];
+                let current = { x: 0, y: 0 };
+                visited[current.y][current.x] = true;
+                stack.push(current);
+
+                // Direcciónes [dx, dy, muro_actual, muro_vecino]
+                const dirs = [
+                    [0, -1, 0, 2], // Norte (muro 0, vecino muro 2)
+                    [1, 0, 1, 3],  // Este (muro 1, vecino muro 3)
+                    [0, 1, 2, 0],  // Sur (muro 2, vecino muro 0)
+                    [-1, 0, 3, 1]  // Oeste (muro 3, vecino muro 1)
+                ];
+
+                while (stack.length > 0) {
+                    current = stack[stack.length - 1];
+                    let neighbors = [];
+
+                    // Encontrar vecinos no visitados
+                    for (let i = 0; i < dirs.length; i++) {
+                        const [dx, dy, wall1, wall2] = dirs[i];
+                        const nx = current.x + dx;
+                        const ny = current.y + dy;
+
+                        if (nx >= 0 && nx < MAZE_W && ny >= 0 && ny < MAZE_H && !visited[ny][nx]) {
+                            neighbors.push({ x: nx, y: ny, wall1, wall2 });
+                        }
+                    }
+
+                    if (neighbors.length > 0) {
+                        // Elegir un vecino al azar
+                        const next = neighbors[Math.floor(Math.random() * neighbors.length)];
+                        
+                        // Derribar el muro entre la celda actual y la siguiente
+                        maze[current.y][current.x][next.wall1] = 0;
+                        maze[next.y][next.x][next.wall2] = 0;
+
+                        visited[next.y][next.x] = true;
+                        stack.push(next);
+                    } else {
+                        stack.pop(); // Backtrack
+                    }
+                }
+                
+                // Asegurar que el jugador y la meta no estén completamente atrapados después del cambio de realidad
+                // Abrir aleatoriamente un muro en la celda del jugador
+                const playerWalls = maze[player.y][player.x];
+                let wallToOpen = Math.floor(Math.random() * 4);
+                playerWalls[wallToOpen] = 0;
+
+                // Abrir aleatoriamente un muro en la celda de la meta
+                const goalWalls = maze[goal.y][goal.x];
+                wallToOpen = Math.floor(Math.random() * 4);
+                goalWalls[wallToOpen] = 0;
+                
+            } catch(e) {
+                console.error("Error al generar el laberinto:", e);
+            }
+        }
+        
+        // --- INICIALIZACIÓN Y REINICIO DEL JUEGO ---
+
+        function initGame(showModal = true, reason = 'start') {
+            try {
+                // Detener el temporizador anterior
+                if (changeInterval) clearInterval(changeInterval);
+                
+                // 1. Resetear la posición del jugador SOLO si es el inicio del juego (Modal)
+                if (reason === 'start') {
+                    player.x = 0; player.y = 0;
+                    moveCount = 0;
+                }
+                
+                // 2. Crear nuevo laberinto (a la posición actual del jugador)
+                createMaze();
+
+                player.targetX = player.x; 
+                player.targetY = player.y;
+                player.isMoving = false;
+                
+                // 3. Colocar meta (abajo derecha)
+                goal.x = MAZE_W - 1; goal.y = MAZE_H - 1;
+                
+                // 4. Resetear estado y contador (si es un reinicio completo)
+                moveCountDisplay.textContent = moveCount;
+                gameState = 'PLAYING';
+
+                // 5. Reiniciar el tiempo y el temporizador de cambio de realidad
+                timeRemaining = REALITY_CHANGE_TIME;
+                startRealityChangeTimer();
+                
+                // 6. Mostrar modal solo si se especificó (solo en 'start' y 'win')
+                if (showModal) {
+                    showGameModal(reason);
+                } else {
+                    modal.classList.add('hidden');
+                }
+            } catch(e) {
+                console.error("Error en la inicialización del juego:", e);
+            }
+        }
+
+        // --- MANEJO DE TIEMPO Y EVENTOS ---
+
+        function startRealityChangeTimer() {
+            const updateTimer = () => {
+                const minutes = Math.floor(timeRemaining / 60);
+                const seconds = timeRemaining % 60;
+                timerDisplay.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+
+                if (timeRemaining <= 0) {
+                    clearInterval(changeInterval);
+                    handleRealityChange();
+                } else {
+                    timeRemaining--;
+                }
+            };
+
+            updateTimer(); // Llamar inmediatamente
+            changeInterval = setInterval(updateTimer, 1000);
+        }
+
+        function handleRealityChange() {
+            // Reiniciar el laberinto manteniendo la posición del jugador (sin modal)
+            initGame(false, 'changed'); 
+        }
+
+        function checkWinCondition() {
+            if (player.x === goal.x && player.y === goal.y) {
+                clearInterval(changeInterval);
+                gameState = 'WON';
+                showGameModal('win');
+            }
+        }
+        
+        // --- MANEJO DE INTERFAZ Y MODAL ---
+
+        function showGameModal(type) {
+            if (type === 'start') {
+                modalTitle.textContent = "¡INICIA LA BÚSQUEDA INTERIOR!";
+                modalMessage.textContent = `Sigue tu Intuición (el corazón rojo) a través del Laberinto de la Realidad. ¡El camino cambiará en ${REALITY_CHANGE_TIME} segundos! Usa WASD o flechas para moverte. Presiona el botón para comenzar el ritmo.`;
+                modalButton.textContent = "Comenzar Aventura";
+                modalButton.onclick = () => {
+                    startRhythmicDrums();
+                    initGame(false);
+                };
+            } else if (type === 'win') {
+                modalTitle.textContent = "¡GUIADO POR EL CORAZÓN!";
+                modalMessage.textContent = `Has llegado a tu Meta en el laberinto actual. Lograste escapar del ciclo de cambio con ${moveCount} movimientos. Una nueva realidad te espera.`;
+                modalButton.textContent = "Iniciar Nueva Realidad";
+                modalButton.onclick = () => initGame(true, 'start'); // Reiniciar completamente
+            }
+            // El caso 'changed' ya no muestra modal, sino que llama a initGame(false)
+            if (type === 'start' || type === 'win') {
+                modal.classList.remove('hidden');
+            }
+        }
+
+        // --- LÓGICA DE MOVIMIENTO Y COLISIONES ---
+
+        let keys = {};
+        window.addEventListener('keydown', e => {
+            keys[e.code] = true;
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) {
+                e.preventDefault();
+            }
+        });
+        window.addEventListener('keyup', e => keys[e.code] = false);
+
+        function tryMove(dx, dy) {
+            if (gameState !== 'PLAYING' || player.isMoving) return;
+
+            const currentCell = maze[player.y][player.x];
+            let targetX = player.x;
+            let targetY = player.y;
+            let directionWall = -1; // 0:N, 1:E, 2:S, 3:O
+
+            if (dx === 1) directionWall = 1; // Este
+            else if (dx === -1) directionWall = 3; // Oeste
+            else if (dy === 1) directionWall = 2; // Sur
+            else if (dy === -1) directionWall = 0; // Norte
+
+            if (directionWall !== -1 && currentCell[directionWall] === 0) {
+                targetX = player.x + dx;
+                targetY = player.y + dy;
+
+                if (targetX >= 0 && targetX < MAZE_W && targetY >= 0 && targetY < MAZE_H) {
+                    player.targetX = targetX;
+                    player.targetY = targetY;
+                    player.isMoving = true;
+                    player.moveTimer = 0;
+                    moveCount++;
+                    moveCountDisplay.textContent = moveCount;
+                }
+            }
+        }
+        
+        function handleInput() {
+            if (player.isMoving || gameState !== 'PLAYING') return;
+
+            if (keys['ArrowUp'] || keys['KeyW']) {
+                tryMove(0, -1);
+            } else if (keys['ArrowDown'] || keys['KeyS']) {
+                tryMove(0, 1);
+            } else if (keys['ArrowLeft'] || keys['KeyA']) {
+                tryMove(-1, 0);
+            } else if (keys['ArrowRight'] || keys['KeyD']) {
+                tryMove(1, 0);
+            }
+        }
+
+        // --- BUCLE DE JUEGO (ANIMACIÓN) ---
+
+        function update(dt) {
+            handleInput();
+
+            if (player.isMoving) {
+                player.moveTimer += player.speed * dt / (1000/60); // Ajuste de velocidad basado en framerate
+
+                if (player.moveTimer >= 1.0) {
+                    // Movimiento completado
+                    player.x = player.targetX;
+                    player.y = player.targetY;
+                    player.isMoving = false;
+                    player.moveTimer = 0;
+                    checkWinCondition();
+                }
+            }
+        }
+
+        // Función para dibujar una forma de corazón
+        function drawHeart(ctx, x, y, size) {
+            ctx.beginPath();
+            ctx.moveTo(x, y + size * 0.3); // Iniciar cerca de la punta inferior
+            ctx.bezierCurveTo(
+                x + size * 0.5, y - size * 0.8,    // Control point 1
+                x + size * 1.5, y + size * 0.2,    // Control point 2
+                x, y + size * 2.0                 // End point (Bottom tip)
+            );
+            ctx.bezierCurveTo(
+                x - size * 1.5, y + size * 0.2,    // Control point 3
+                x - size * 0.5, y - size * 0.8,    // Control point 4
+                x, y + size * 0.3                  // Back to start
+            );
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        function draw() {
+            // Limpiar el canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // --- VERIFICACIÓN DE INICIALIZACIÓN ---
+            // Si el laberinto aún no se ha generado (inicio o modal), detener el dibujo del juego.
+            if (maze.length === 0) return;
+            // --------------------------------------
+            
+            // Posición actual del jugador en píxeles (interpolada si se está moviendo)
+            const playerPixelX = (player.isMoving ? 
+                player.x + (player.targetX - player.x) * player.moveTimer : 
+                player.x
+            ) * CELL_SIZE + CELL_SIZE / 2;
+            const playerPixelY = (player.isMoving ? 
+                player.y + (player.targetY - player.y) * player.moveTimer : 
+                player.y
+            ) * CELL_SIZE + CELL_SIZE / 2;
+            
+            // 1. Dibujar el laberinto (sólo paredes visibles)
+            ctx.lineWidth = 3; // Grosor aumentado
+            ctx.strokeStyle = '#f59e0b'; // Color de pared más brillante (Amber 500)
+            
+            ctx.save();
+            // Crear el clip circular de visibilidad
+            ctx.beginPath();
+            ctx.arc(playerPixelX, playerPixelY, VISIBILITY_RADIUS, 0, 2 * Math.PI);
+            ctx.clip(); // Limita todo el dibujo posterior a esta área
+            
+            for (let y = 0; y < MAZE_H; y++) {
+                for (let x = 0; x < MAZE_W; x++) {
+                    const px = x * CELL_SIZE;
+                    const py = y * CELL_SIZE;
+                    const walls = maze[y][x];
+
+                    // Dibujar paredes
+                    // Norte (0)
+                    if (walls[0]) {
+                        ctx.beginPath();
+                        ctx.moveTo(px, py);
+                        ctx.lineTo(px + CELL_SIZE, py);
+                        ctx.stroke();
+                    }
+                    // Este (1)
+                    if (walls[1]) {
+                        ctx.beginPath();
+                        ctx.moveTo(px + CELL_SIZE, py);
+                        ctx.lineTo(px + CELL_SIZE, py + CELL_SIZE);
+                        ctx.stroke();
+                    }
+                    // Sur (2)
+                    if (walls[2]) {
+                        ctx.beginPath();
+                        ctx.moveTo(px + CELL_SIZE, py + CELL_SIZE);
+                        ctx.lineTo(px, py + CELL_SIZE);
+                        ctx.stroke();
+                    }
+                    // Oeste (3)
+                    if (walls[3]) {
+                        ctx.beginPath();
+                        ctx.moveTo(px, py + CELL_SIZE);
+                        ctx.lineTo(px, py);
+                        ctx.stroke();
+                    }
+                }
+            }
+            
+            // 2. Dibujar la meta (Goal)
+            const goalX = goal.x * CELL_SIZE + CELL_SIZE / 2;
+            const goalY = goal.y * CELL_SIZE + CELL_SIZE / 2;
+            
+            // Solo dibujar si está dentro del radio visible
+            const distSq = (playerPixelX - goalX) ** 2 + (playerPixelY - goalY) ** 2;
+            if (distSq <= VISIBILITY_RADIUS * VISIBILITY_RADIUS) {
+                ctx.fillStyle = '#f59e0b'; // Dorado
+                ctx.font = `${CELL_SIZE * 0.8}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('★', goalX, goalY + 3); // Dibujar estrella de meta
+            }
+
+            ctx.restore(); // Restaurar el contexto, quitando el clip circular
+
+            // 3. Dibujar el círculo de oscuridad (todo excepto el centro)
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.85)'; // Oscuridad
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Crear un segundo clip para "restar" el área de visibilidad
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.beginPath();
+            ctx.arc(playerPixelX, playerPixelY, VISIBILITY_RADIUS, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            ctx.globalCompositeOperation = 'source-over'; // Volver al modo normal
+
+            // 4. Dibujar el jugador (círculo verde)
+            const playerRadius = CELL_SIZE * 0.35;
+            ctx.fillStyle = '#10b981'; // Icono del jugador (verde esmeralda)
+            ctx.beginPath();
+            ctx.arc(playerPixelX, playerPixelY, playerRadius, 0, 2 * Math.PI);
+            ctx.fill();
+
+            // 5. Dibujar Brújula de Intuición (CORAZÓN ROJO)
+            
+            // Calcular ángulo hacia la meta
+            const deltaX = goalX - playerPixelX;
+            const deltaY = goalY - playerPixelY;
+            // Angulo en radianes. Se suma 3*Math.PI / 2 para que la punta inferior del corazón apunte al destino (270 grados).
+            const angle = Math.atan2(deltaY, deltaX) + (3 * Math.PI) / 2; 
+
+            ctx.save();
+            ctx.translate(playerPixelX, playerPixelY);
+            ctx.rotate(angle);
+
+            // Dibujar el corazón rojo
+            const heartSize = playerRadius * 0.7;
+            ctx.fillStyle = '#ef4444'; // Rojo fuerte
+            
+            drawHeart(ctx, 0, 0, heartSize); 
+
+            ctx.restore();
+            
+        }
+
+        // --- BUCLE PRINCIPAL ---
+        let lastTime = 0;
+        function gameLoop(time) {
+            try {
+                if (!lastTime) lastTime = time;
+                const dt = time - lastTime;
+                lastTime = time;
+
+                if (gameState === 'PLAYING') {
+                    update(dt);
+                }
+                draw();
+
+                requestAnimationFrame(gameLoop);
+            } catch(e) {
+                console.error("Error en el bucle principal:", e);
+                // Si hay un error fatal, detener la animación
+                clearInterval(changeInterval);
+            }
+        }
+
+        // Inicialización
+        window.onload = function() {
+            // La inicialización real del juego se hace en initGame
+            // Pero llamamos al modal para que el usuario inicie el juego y el audio.
+            showGameModal('start');
+            
+            // Asignar evento al botón de MUTE
+            muteButton.addEventListener('click', toggleMute);
+
+            // Iniciar el bucle de animación, pero el juego estará en estado 'IDLE' hasta que el usuario haga clic.
+            requestAnimationFrame(gameLoop);
+        };
+
+    </script>
+</body>
+</html>
